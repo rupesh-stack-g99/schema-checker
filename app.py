@@ -4,7 +4,6 @@ from bs4 import BeautifulSoup
 import json
 import pandas as pd
 import time
-import re
 
 # --- Page Setup & Styling ---
 st.set_page_config(
@@ -144,7 +143,7 @@ def check_schema(url):
 
 # --- Sidebar Inputs ---
 st.sidebar.header("🛠️ Configuration")
-target_website = st.sidebar.text_input("Website Domain:", placeholder="https://vipweightlosscenters.com")
+target_website = st.sidebar.text_input("Website Domain:", placeholder="https://example.com")
 
 # --- Main App Logic ---
 if st.sidebar.button("🚀 Run Automation", type="primary"):
