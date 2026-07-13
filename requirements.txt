@@ -1,4 +1,5 @@
-playwright
+streamlit
 beautifulsoup4
 requests
 pandas
+playwright
