@@ -6,59 +6,63 @@ import pandas as pd
 import time
 from urllib.parse import urlparse
 
-# --- Page Setup & Styling ---
+# --- Page Setup & Modern Styling ---
 st.set_page_config(
-    page_title="SEO Schema Verifier",
-    page_icon="🔍",
-    layout="wide"
+    page_title="SchemaPulse | Structured Data Auditor",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🔍 Site-Wide Schema Checker Automation")
-st.markdown("Enter your domain below. The app will automatically discover sitemaps matching `page` or `astra-portfolio` patterns and clean up matching target pages.")
+# Custom CSS Injector for Premium Look & Feel
+st.markdown("""
+    <style>
+        /* Main metric layout enhancements */
+        [data-testid="stMetricValue"] {
+            font-size: 2.2rem !important;
+            font-weight: 700 !important;
+        }
+        /* Custom styled containers */
+        .status-box {
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            background-color: #f8f9fa;
+            border-left: 5px solid #6c757d;
+            margin-bottom: 1rem;
+        }
+        /* Hide default Streamlit decoration lines if desired */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
 
-# --- Corrected Ignore Rules ---
+# --- Header & Brand Title ---
+st.markdown("<h1 style='text-align: left; margin-bottom:0;'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
+st.markdown("<p style='font-size:1.1rem; color:#6c757d; margin-top:0;'>Automated SEO Structured Data Auditing for Home & Core Service Pages</p>", unsafe_allow_html=True)
+st.markdown("---")
+
+# --- Strict Ignore Rules ---
 IGNORE_KEYWORDS = [
-    "wp-content",
-    "terms",
-    "condition",
-    "privacy",
-    "policy",
-    "/html-sitemap/",
-    "contact",         
-    "about",           
-    "review",          
-    "gallery",         
-    "awards",          
-    "before-after",    
-    "blog",            
-    "video",           
-    "thank-you"        
+    "wp-content", "terms", "condition", "privacy", "policy", "policies",        
+    "shop", "specials", "payment-plans", "our-services", "/html-sitemap/",
+    "contact", "about", "review", "gallery", "awards", "before-after",    
+    "blog", "video", "thank-you"        
 ]
-
 IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
 
-# --- URL Normalizer ---
+# --- Logic Helper Functions ---
 def normalize_url(url_input):
-    """Ensures input domain has a protocol prefix and handles formatting variations smoothly."""
     url_str = url_input.strip()
-    if not url_str:
-        return ""
-        
-    # Prepend secure protocol if completely missing
+    if not url_str: return ""
     if not url_str.startswith(('http://', 'https://')):
         url_str = 'https://' + url_str
-        
     parsed = urlparse(url_str)
-    # Combine schema and network location framework
     base = f"{parsed.scheme}://{parsed.netloc}"
     return base.rstrip('/') + '/'
 
-# --- Functions ---
 def discover_sitemaps(base_url):
-    """Finds any sitemaps matching 'page' or 'astra-portfolio' from the sitemap index."""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     clean_base = base_url.rstrip('/') + '/'
-    
     index_files = ["sitemap.xml", "sitemap_index.xml"]
     discovered_sitemaps = []
     
@@ -82,18 +86,15 @@ def discover_sitemaps(base_url):
             f"{clean_base}astra-portfolio-sitemap.xml",
             f"{clean_base}astra-portfolio-sitemap1.xml"
         ]
-        
     return list(set(discovered_sitemaps))
 
 def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
     urls = []
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     clean_base = base_url.rstrip('/') + '/'
-    
     urls.append(clean_base)
 
     for sitemap_url in discovered_sitemaps:
-        st.sidebar.info(f"📥 Reading Sitemap: {sitemap_url.split('/')[-1]}")
         try:
             response = requests.get(sitemap_url, headers=headers, timeout=10)
             if response.status_code == 200:
@@ -103,18 +104,12 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
                     if tag.text:
                         url = tag.text.strip()
                         url_lower = url.lower()
-                        
-                        if url_lower.endswith(IGNORE_EXTENSIONS):
-                            continue
-                            
-                        if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
+                        if url_lower.endswith(IGNORE_EXTENSIONS) or any(k in url_lower for k in IGNORE_KEYWORDS):
                             if url.rstrip('/') != clean_base.rstrip('/'):
                                 continue
-                        
                         urls.append(url)
-        except Exception as e:
-            st.sidebar.error(f"Error accessing sitemap contents: {e}")
-            
+        except Exception:
+            pass
     return sorted(list(set(urls)))
 
 def check_schema(url):
@@ -122,13 +117,12 @@ def check_schema(url):
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
-            return "⚠️ Error", f"Status Error ({response.status_code})", []
+            return "⚠️ Error", f"Status Error ({response.status_code})"
         
         soup = BeautifulSoup(response.text, 'html.parser')
         schema_tags = soup.find_all('script', type='application/ld+json')
-        
         if not schema_tags:
-            return "❌ No Schema", "None", []
+            return "❌ Missing", "No JSON-LD Detected"
         
         schema_types = []
         for tag in schema_tags:
@@ -139,80 +133,106 @@ def check_schema(url):
                 elif isinstance(data, list):
                     for item in data:
                         if isinstance(item, dict) and '@type' in item: schema_types.append(item['@type'])
-            except:
-                continue
+            except: pass
                 
         if schema_types:
-            return "✅ Yes", ", ".join(list(set(schema_types))), list(set(schema_types))
-        else:
-            return "❌ No Schema", "None", []
-            
+            return "✅ Valid Schema", ", ".join(list(set(schema_types)))
+        return "❌ Missing", "No Schema Data Present"
     except Exception:
-        return "⚠️ Error", "Connection Failed", []
+        return "⚠️ Error", "Connection Timeout/Failed"
 
-# --- Sidebar Inputs ---
-st.sidebar.header("🛠️ Configuration")
-raw_website_input = st.sidebar.text_input("Website Domain:", placeholder="example.com")
+# --- Sidebar Controls Layout ---
+st.sidebar.markdown("### 🛠️ Crawler Control Panel")
+raw_website_input = st.sidebar.text_input("Target Domain Path", placeholder="example.com")
+run_button = st.sidebar.button("🚀 Start Deep Scan", type="primary", use_container_width=True)
 
-# --- Main App Logic ---
-if st.sidebar.button("🚀 Run Automation", type="primary"):
+st.sidebar.markdown("---")
+st.sidebar.markdown("#### 🚫 System Filter Constraints")
+with st.sidebar.expander("View Active Exclusions List"):
+    st.write(IGNORE_KEYWORDS)
+
+# --- Main Dashboard Execution Flow ---
+if run_button:
     if not raw_website_input:
-        st.error("Please enter a valid website URL first!")
+        st.error("❗ Please provide a target domain extension before executing the scanner pipeline.")
     else:
-        # Normalize target string input instantly
         target_website = normalize_url(raw_website_input)
-        st.info(f"🔍 Normalizing target endpoint to: `{target_website}`")
         
-        with st.spinner("🔍 Map Discovery: Finding relevant target sitemaps..."):
+        # Discovery Steps UI Box
+        with st.status("🛠️ Initiating Mapping Engines & Link Filtering...", expanded=True) as status_box:
+            st.write("🕵️ Discovering applicable index structures...")
             sitemaps_to_run = discover_sitemaps(target_website)
+            st.write(f"📂 Selected sitemaps for tracking: `{[s.split('/')[-1] for s in sitemaps_to_run]}`")
             
-        with st.spinner("📥 Extracting and filtering URLs based on your ignore list..."):
+            st.write("📥 Fetching active routes & stripping system noise...")
             urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_run)
+            status_box.update(label="Target Pipeline Complete!", state="complete", expanded=False)
         
         if not urls_to_check:
-            st.error("No URLs remaining after applying structural filters.")
+            st.error("❌ Process Halting: No URLs remain after filtering against exclusions constraints.")
         else:
-            st.success(f"🎯 Found {len(urls_to_check)} custom audited pages to analyze.")
-            
+            # Progress Tracking Cards
             progress_bar = st.progress(0)
-            status_text = st.empty()
+            status_ticker = st.empty()
             results_data = []
             
             for index, url in enumerate(urls_to_check):
-                status_text.text(f"Scanning ({index + 1}/{len(urls_to_check)}): {url}")
-                status, detected_types, types_list = check_schema(url)
+                status_ticker.markdown(f"**Scanning Node ({index + 1}/{len(urls_to_check)}):** `{url}`")
+                status, info = check_schema(url)
                 
                 results_data.append({
-                    "URL": url,
-                    "Schema Status": status,
-                    "Detected Schema Types": detected_types
+                    "Target URL Endpoint": url,
+                    "Verification Status": status,
+                    "Detected Types / Metadata": info
                 })
-                
                 progress_bar.progress((index + 1) / len(urls_to_check))
-                time.sleep(0.1)
-            
-            status_text.empty()
+                time.sleep(0.05)
+                
+            status_ticker.empty()
             progress_bar.empty()
             
-            # Summary Dashboard
+            # --- Interactive Analytics Block ---
             df = pd.DataFrame(results_data)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Targeted Pages", len(df))
-            with col2:
-                st.metric("Schema Found", len(df[df["Schema Status"] == "✅ Yes"]))
-            with col3:
-                st.metric("Missing Schema", len(df[df["Schema Status"] != "✅ Yes"]))
+            total_count = len(df)
+            valid_count = len(df[df["Verification Status"] == "✅ Valid Schema"])
+            missing_count = len(df[df["Verification Status"] == "❌ Missing"])
+            error_count = total_count - (valid_count + missing_count)
             
-            # Results Table
-            st.subheader("📊 Automation Report")
-            st.dataframe(df, use_container_width=True)
+            st.markdown("### 📈 Verification Performance")
+            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+            m_col1.metric("Audited Routes", total_count)
+            m_col2.metric("Schema Configured", valid_count, help="JSON-LD code detected")
+            m_col3.metric("Unstructured Pages", missing_count, delta=f"-{missing_count}" if missing_count > 0 else None, delta_color="inverse")
+            m_col4.metric("Crawling Errors", error_count, delta=f"{error_count} flagged" if error_count > 0 else None, delta_color="off")
             
-            # Export Options
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Download Clean CSV Report",
-                data=csv,
-                file_name="filtered_schema_report.csv",
-                mime="text/csv",
-            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Tabbed View Components
+            tab1, tab2 = st.tabs(["📋 Inspection Data Stream", "📦 Data Export Panel"])
+            
+            with tab1:
+                st.subheader("Data Overview Table")
+                st.dataframe(
+                    df, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Verification Status": st.column_config.SelectColumn(
+                            "Verification Status",
+                            width="medium"
+                        ),
+                        "Target URL Endpoint": st.column_config.LinkColumn("Target URL Endpoint")
+                    }
+                )
+                
+            with tab2:
+                st.subheader("Download Artifacts")
+                st.markdown("Download the full execution audit log to a CSV spreadsheet.")
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Data Sheet (.csv)",
+                    data=csv,
+                    file_name="schemapulse_audit_log.csv",
+                    mime="text/csv",
+                    type="secondary"
+                )
