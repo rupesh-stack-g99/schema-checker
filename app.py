@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import json
 import pandas as pd
 import time
+import re
 
 # --- Page Setup & Styling ---
 st.set_page_config(
@@ -15,24 +16,23 @@ st.set_page_config(
 st.title("🔍 Site-Wide Schema Checker Automation")
 st.markdown("Enter your domain below. The app will automatically discover sitemaps matching `page` or `astra-portfolio` patterns and clean up matching target pages.")
 
-# --- The Strict Ignore Rules (Updated with your newest keywords) ---
+# --- Corrected Ignore Rules (No longer blocks services!) ---
 IGNORE_KEYWORDS = [
     "wp-content",
     "terms",
     "condition",
-    "services",        # Strips out main service listing page index if requested
     "privacy",
     "policy",
     "/html-sitemap/",
-    "contact",         # Catches contact, contact-us, contact-us/
-    "about",           # Catches about, about-us, about-us/
-    "review",          # Catches review, reviews, customer-reviews
+    "contact",         # Catches contact, contact-us
+    "about",           # Catches about, about-us
+    "review",          # Catches review, reviews
     "gallery",         # Catches gallery, photo-gallery
-    "awards",          # Catches awards, our-awards
-    "before-after",    # Catches before-after, before-and-after
-    "blog",            # Catches blog, blogs, blog-posts
-    "video",           # Catches video, videos, video-gallery
-    "thank-you"        # Catches thank-you, thank-you-page
+    "awards",          # Catches awards
+    "before-after",    # Catches before-after strings
+    "blog",            # Catches blog, blogs
+    "video",           # Catches video, videos
+    "thank-you"        # Catches thank-you pages
 ]
 
 # Asset extensions to ignore completely
@@ -44,7 +44,6 @@ def discover_sitemaps(base_url):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     clean_base = base_url.rstrip('/') + '/'
     
-    # Try common sitemap index entry points
     index_files = ["sitemap.xml", "sitemap_index.xml"]
     discovered_sitemaps = []
     
@@ -57,13 +56,13 @@ def discover_sitemaps(base_url):
                 loc_tags = soup.find_all('loc')
                 for tag in loc_tags:
                     sitemap_loc = tag.text.strip().lower()
-                    # Catch variations like page-sitemap.xml, astra-portfolio-sitemap1.xml, etc.
+                    # Catch page-sitemap, astra-portfolio-sitemap, astra-portfolio-sitemap1, etc.
                     if "page" in sitemap_loc or "astra-portfolio" in sitemap_loc:
                         discovered_sitemaps.append(tag.text.strip())
         except Exception:
             continue
             
-    # Fallback default list if no primary sitemap index is exposed
+    # Fallback list if the site blocks root sitemap index parsing
     if not discovered_sitemaps:
         discovered_sitemaps = [
             f"{clean_base}page-sitemap.xml",
@@ -97,7 +96,7 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
                         if url_lower.endswith(IGNORE_EXTENSIONS):
                             continue
                             
-                        # 2. Skip if it matches any user manual ignore terms
+                        # 2. Skip if it matches user manual ignore terms
                         if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
                             if url.rstrip('/') != clean_base.rstrip('/'):
                                 continue
