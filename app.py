@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import json
 import pandas as pd
 import time
+import re
 
 # --- Page Setup & Styling ---
 st.set_page_config(
@@ -13,38 +14,76 @@ st.set_page_config(
 )
 
 st.title("🔍 Site-Wide Schema Checker Automation")
-st.markdown("Enter your domain below. The app will pull all URLs from your target sitemaps and clean them based on your strict ignore rules.")
+st.markdown("Enter your domain below. The app will automatically discover sitemaps matching `page` or `astra-portfolio` patterns and clean up matching target pages.")
 
-# --- The Strict Ignore Rules (Based on your requirements) ---
+# --- The Strict Ignore Rules (Updated with your newest keywords) ---
 IGNORE_KEYWORDS = [
     "wp-content",
     "terms",
     "condition",
-    "services",        # Strips out main service listing page if requested
+    "services",        # Strips out main service listing page index if requested
     "privacy",
     "policy",
-    "/portfolio/",
     "/html-sitemap/",
     "contact",         # Catches contact, contact-us, contact-us/
     "about",           # Catches about, about-us, about-us/
     "review",          # Catches review, reviews, customer-reviews
-    "gallery"          # Catches gallery, photo-gallery
+    "gallery",         # Catches gallery, photo-gallery
+    "awards",          # Catches awards, our-awards
+    "before-after",    # Catches before-after, before-and-after
+    "blog",            # Catches blog, blogs, blog-posts
+    "video",           # Catches video, videos, video-gallery
+    "thank-you"        # Catches thank-you, thank-you-page
 ]
 
 # Asset extensions to ignore completely
 IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
 
 # --- Functions ---
-def extract_urls_from_sitemaps(base_url, sitemap_list):
+def discover_sitemaps(base_url):
+    """Finds any sitemaps matching 'page' or 'astra-portfolio' from the sitemap index."""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    clean_base = base_url.rstrip('/') + '/'
+    
+    # Try common sitemap index entry points
+    index_files = ["sitemap.xml", "sitemap_index.xml"]
+    discovered_sitemaps = []
+    
+    for index_file in index_files:
+        index_url = f"{clean_base}{index_file}"
+        try:
+            response = requests.get(index_url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.content, 'xml')
+                loc_tags = soup.find_all('loc')
+                for tag in loc_tags:
+                    sitemap_loc = tag.text.strip().lower()
+                    # Catch variations like page-sitemap.xml, astra-portfolio-sitemap1.xml, etc.
+                    if "page" in sitemap_loc or "astra-portfolio" in sitemap_loc:
+                        discovered_sitemaps.append(tag.text.strip())
+        except Exception:
+            continue
+            
+    # Fallback default list if no primary sitemap index is exposed
+    if not discovered_sitemaps:
+        discovered_sitemaps = [
+            f"{clean_base}page-sitemap.xml",
+            f"{clean_base}astra-portfolio-sitemap.xml",
+            f"{clean_base}astra-portfolio-sitemap1.xml"
+        ]
+        
+    return list(set(discovered_sitemaps))
+
+def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
     urls = []
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    
     clean_base = base_url.rstrip('/') + '/'
+    
     # Always keep the primary homepage
     urls.append(clean_base)
 
-    for sitemap in sitemap_list:
-        sitemap_url = f"{clean_base}{sitemap.lstrip('/')}"
+    for sitemap_url in discovered_sitemaps:
+        st.sidebar.info(f"📥 Reading Sitemap: {sitemap_url.split('/')[-1]}")
         try:
             response = requests.get(sitemap_url, headers=headers, timeout=10)
             if response.status_code == 200:
@@ -55,21 +94,18 @@ def extract_urls_from_sitemaps(base_url, sitemap_list):
                         url = tag.text.strip()
                         url_lower = url.lower()
                         
-                        # 1. Skip if it's a file (pdf, webp, svg, etc)
+                        # 1. Skip if it's a static file resource
                         if url_lower.endswith(IGNORE_EXTENSIONS):
                             continue
                             
-                        # 2. Skip if it matches any of your manual ignore terms
+                        # 2. Skip if it matches any user manual ignore terms
                         if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
-                            # Ensure we don't accidentally ignore the homepage root if a keyword triggers it
                             if url.rstrip('/') != clean_base.rstrip('/'):
                                 continue
                         
                         urls.append(url)
-            else:
-                st.sidebar.warning(f"Could not reach sitemap: {sitemap}")
         except Exception as e:
-            st.sidebar.error(f"Error fetching {sitemap}: {e}")
+            st.sidebar.error(f"Error accessing sitemap contents: {e}")
             
     return sorted(list(set(urls)))
 
@@ -108,25 +144,23 @@ def check_schema(url):
 
 # --- Sidebar Inputs ---
 st.sidebar.header("🛠️ Configuration")
-target_website = st.sidebar.text_input("Website Domain:", placeholder="https://yourwebsite.com")
-
-sitemaps_to_check = [
-    "page-sitemap.xml",
-    "astra-portfolio-sitemap.xml"
-]
+target_website = st.sidebar.text_input("Website Domain:", placeholder="https://vipweightlosscenters.com")
 
 # --- Main App Logic ---
 if st.sidebar.button("🚀 Run Automation", type="primary"):
     if not target_website:
         st.error("Please enter a valid website URL first!")
     else:
+        with st.spinner("🔍 Map Discovery: Finding relevant target sitemaps..."):
+            sitemaps_to_run = discover_sitemaps(target_website)
+            
         with st.spinner("📥 Extracting and filtering URLs based on your ignore list..."):
-            urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_check)
+            urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_run)
         
         if not urls_to_check:
-            st.error("No URLs remaining after applying filters.")
+            st.error("No URLs remaining after applying structural filters.")
         else:
-            st.success(f"🎯 Filter applied! Found {len(urls_to_check)} pages to analyze.")
+            st.success(f"🎯 Found {len(urls_to_check)} custom audited pages to analyze.")
             
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -152,7 +186,7 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
             df = pd.DataFrame(results_data)
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Total Filtered Pages", len(df))
+                st.metric("Total Targeted Pages", len(df))
             with col2:
                 st.metric("Schema Found", len(df[df["Schema Status"] == "✅ Yes"]))
             with col3:
