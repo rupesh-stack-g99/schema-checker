@@ -1,1 +1,2 @@
-packages.txt
+chromium
+chromium-driver
