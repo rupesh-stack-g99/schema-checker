@@ -12,24 +12,19 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🔍 Site-Wide Schema Checker Automation")
-st.markdown("Enter your domain below. The app will fetch `page-sitemap.xml` and `astra-portfolio-sitemap.xml` to analyze every page for schema markup automatically.")
+st.title("🔍 Service Pages Schema Checker Automation")
+st.markdown("Enter your domain below. This app targets `page-sitemap.xml` and `astra-portfolio-sitemap.xml` but **only** inspects your Homepage and Service pages.")
 
-# --- Configuration & Ignore Lists ---
-# Text or folders inside URLs that you want ignored completely
-IGNORE_KEYWORDS = [
-    "wp-content",
-    "terms-conditions",
-    "terms-and-conditions",
-    "services",             # Requested to ignore /services/
-    "privacy-policy",
-    "/portfolio/",
-    "/html-sitemap/",
-    "contact-us",
-    "about-us"
+# --- Strict Filtering Rules ---
+# The script will ONLY allow pages containing these service indicators
+ALLOWED_SERVICE_KEYWORDS = ["/services/", "/service/"]
+
+# Hard rules to drop common junk pages even if they somehow clip into service footprints
+STRICT_EXCLUSIONS = [
+    "contact", "review", "gallery", "about", "team", "privacy", "terms", 
+    "wp-content", "html-sitemap", "portfolio", "blog", "tag", "category"
 ]
 
-# File extensions to ignore
 IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
 
 # --- Functions ---
@@ -37,11 +32,12 @@ def extract_urls_from_sitemaps(base_url, sitemap_list):
     urls = []
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
-    # Pre-populate homepage just in case
-    urls.append(base_url.rstrip('/') + '/')
+    clean_base = base_url.rstrip('/') + '/'
+    # 1. Force add the exact homepage
+    urls.append(clean_base)
 
     for sitemap in sitemap_list:
-        sitemap_url = f"{base_url.rstrip('/')}/{sitemap.lstrip('/')}"
+        sitemap_url = f"{clean_base}{sitemap.lstrip('/')}"
         try:
             response = requests.get(sitemap_url, headers=headers, timeout=10)
             if response.status_code == 200:
@@ -52,16 +48,18 @@ def extract_urls_from_sitemaps(base_url, sitemap_list):
                         url = tag.text.strip()
                         url_lower = url.lower()
                         
-                        # Apply Filtering Logic
-                        # 1. Skip if it ends with any blacklisted file extensions
+                        # --- STRICT FILTERING SYSTEM ---
+                        # Skip files
                         if url_lower.endswith(IGNORE_EXTENSIONS):
                             continue
                             
-                        # 2. Skip if it matches any keyword phrases
-                        if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
+                        # Skip explicit junk/admin keywords
+                        if any(ex in url_lower for ex in STRICT_EXCLUSIONS):
                             continue
                         
-                        urls.append(url)
+                        # Only accept if it is a service page path
+                        if any(keyword in url_lower for keyword in ALLOWED_SERVICE_KEYWORDS):
+                            urls.append(url)
             else:
                 st.sidebar.warning(f"Could not reach sitemap: {sitemap}")
         except Exception as e:
@@ -116,25 +114,20 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
     if not target_website:
         st.error("Please enter a valid website URL first!")
     else:
-        # Step 1: Get filtered URLs
-        with st.spinner("📥 Extracting and filtering URLs from targeted sitemaps..."):
+        with st.spinner("📥 Extracting Home and Service pages only..."):
             urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_check)
         
         if not urls_to_check:
-            st.error("Could not find any URLs. Make sure the domain is correct and those two sitemaps exist.")
+            st.error("Could not find any pages matching your service layout rules.")
         else:
-            st.success(f"🎯 Discovered {len(urls_to_check)} valid matching pages to analyze!")
+            st.success(f"🎯 Target Acquired! Discovered {len(urls_to_check)} core pages (Homepage + Service Pages).")
             
-            # Setup metrics and progress bar
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
             results_data = []
             
-            # Step 2: Loop pages
             for index, url in enumerate(urls_to_check):
                 status_text.text(f"Scanning ({index + 1}/{len(urls_to_check)}): {url}")
-                
                 status, detected_types, types_list = check_schema(url)
                 
                 results_data.append({
@@ -144,31 +137,30 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
                 })
                 
                 progress_bar.progress((index + 1) / len(urls_to_check))
-                time.sleep(0.1) # Soft delay to protect server load
+                time.sleep(0.1)
             
             status_text.empty()
             progress_bar.empty()
             
-            # Step 3: Display Summary Metrics
+            # Summary Dashboard
             df = pd.DataFrame(results_data)
-            
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Total Pages Crawled", len(df))
+                st.metric("Total Targeted Pages", len(df))
             with col2:
-                st.metric("Schema Found", len(df[df["Schema Status"] == "✅ Yes"]))
+                st.metric("Schema Configured Correctly", len(df[df["Schema Status"] == "✅ Yes"]))
             with col3:
-                st.metric("Missing Schema / Errors", len(df[df["Schema Status"] != "✅ Yes"]))
+                st.metric("Schema Missing/Broken", len(df[df["Schema Status"] != "✅ Yes"]))
             
-            # Step 4: Display Data Interactive Table
-            st.subheader("📊 Inspection Report Table")
+            # Results UI Table
+            st.subheader("📊 Execution Report")
             st.dataframe(df, use_container_width=True)
             
-            # Step 5: CSV Download Feature
+            # Export Options
             csv = df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Report as CSV",
+                label="📥 Download Clean CSV Report",
                 data=csv,
-                file_name="filtered_schema_report.csv",
+                file_name="services_schema_report.csv",
                 mime="text/csv",
             )
