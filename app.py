@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import json
 import pandas as pd
 import time
-import re
+from urllib.parse import urlparse
 
 # --- Page Setup & Styling ---
 st.set_page_config(
@@ -16,7 +16,7 @@ st.set_page_config(
 st.title("🔍 Site-Wide Schema Checker Automation")
 st.markdown("Enter your domain below. The app will automatically discover sitemaps matching `page` or `astra-portfolio` patterns and clean up matching target pages.")
 
-# --- Corrected Ignore Rules (No longer blocks services!) ---
+# --- Corrected Ignore Rules ---
 IGNORE_KEYWORDS = [
     "wp-content",
     "terms",
@@ -24,19 +24,34 @@ IGNORE_KEYWORDS = [
     "privacy",
     "policy",
     "/html-sitemap/",
-    "contact",         # Catches contact, contact-us
-    "about",           # Catches about, about-us
-    "review",          # Catches review, reviews
-    "gallery",         # Catches gallery, photo-gallery
-    "awards",          # Catches awards
-    "before-after",    # Catches before-after strings
-    "blog",            # Catches blog, blogs
-    "video",           # Catches video, videos
-    "thank-you"        # Catches thank-you pages
+    "contact",         
+    "about",           
+    "review",          
+    "gallery",         
+    "awards",          
+    "before-after",    
+    "blog",            
+    "video",           
+    "thank-you"        
 ]
 
-# Asset extensions to ignore completely
 IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
+
+# --- URL Normalizer ---
+def normalize_url(url_input):
+    """Ensures input domain has a protocol prefix and handles formatting variations smoothly."""
+    url_str = url_input.strip()
+    if not url_str:
+        return ""
+        
+    # Prepend secure protocol if completely missing
+    if not url_str.startswith(('http://', 'https://')):
+        url_str = 'https://' + url_str
+        
+    parsed = urlparse(url_str)
+    # Combine schema and network location framework
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    return base.rstrip('/') + '/'
 
 # --- Functions ---
 def discover_sitemaps(base_url):
@@ -56,13 +71,11 @@ def discover_sitemaps(base_url):
                 loc_tags = soup.find_all('loc')
                 for tag in loc_tags:
                     sitemap_loc = tag.text.strip().lower()
-                    # Catch page-sitemap, astra-portfolio-sitemap, astra-portfolio-sitemap1, etc.
                     if "page" in sitemap_loc or "astra-portfolio" in sitemap_loc:
                         discovered_sitemaps.append(tag.text.strip())
         except Exception:
             continue
             
-    # Fallback list if the site blocks root sitemap index parsing
     if not discovered_sitemaps:
         discovered_sitemaps = [
             f"{clean_base}page-sitemap.xml",
@@ -77,7 +90,6 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     clean_base = base_url.rstrip('/') + '/'
     
-    # Always keep the primary homepage
     urls.append(clean_base)
 
     for sitemap_url in discovered_sitemaps:
@@ -92,11 +104,9 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
                         url = tag.text.strip()
                         url_lower = url.lower()
                         
-                        # 1. Skip if it's a static file resource
                         if url_lower.endswith(IGNORE_EXTENSIONS):
                             continue
                             
-                        # 2. Skip if it matches user manual ignore terms
                         if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
                             if url.rstrip('/') != clean_base.rstrip('/'):
                                 continue
@@ -142,13 +152,17 @@ def check_schema(url):
 
 # --- Sidebar Inputs ---
 st.sidebar.header("🛠️ Configuration")
-target_website = st.sidebar.text_input("Website Domain:", placeholder="https://example.com")
+raw_website_input = st.sidebar.text_input("Website Domain:", placeholder="example.com")
 
 # --- Main App Logic ---
 if st.sidebar.button("🚀 Run Automation", type="primary"):
-    if not target_website:
+    if not raw_website_input:
         st.error("Please enter a valid website URL first!")
     else:
+        # Normalize target string input instantly
+        target_website = normalize_url(raw_website_input)
+        st.info(f"🔍 Normalizing target endpoint to: `{target_website}`")
+        
         with st.spinner("🔍 Map Discovery: Finding relevant target sitemaps..."):
             sitemaps_to_run = discover_sitemaps(target_website)
             
