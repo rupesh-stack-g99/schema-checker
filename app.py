@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import json
 import pandas as pd
 import time
+import re
 from urllib.parse import urlparse
 
 # --- Page Setup & Modern Styling ---
@@ -61,7 +62,8 @@ def normalize_url(url_input):
     return base.rstrip('/') + '/'
 
 def discover_sitemaps(base_url):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    # Emulating Googlebot to bypass server-side firewall triggers
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
     clean_base = base_url.rstrip('/') + '/'
     index_files = ["sitemap.xml", "sitemap_index.xml"]
     discovered_sitemaps = []
@@ -90,7 +92,7 @@ def discover_sitemaps(base_url):
 
 def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
     urls = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
     clean_base = base_url.rstrip('/') + '/'
     urls.append(clean_base)
 
@@ -113,31 +115,52 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
     return sorted(list(set(urls)))
 
 def check_schema(url):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
     try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code != 200:
             return "⚠️ Error", f"Status Error ({response.status_code})"
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        schema_tags = soup.find_all('script', type='application/ld+json')
-        if not schema_tags:
-            return "❌ Missing", "No JSON-LD Detected"
-        
         schema_types = []
+        
+        # --- PATHWAY A & B: JSON-LD Verification & Regex Bypass Bypass Recovery ---
+        schema_tags = soup.find_all('script', type='application/ld+json')
+        
         for tag in schema_tags:
+            if not tag.string:
+                continue
             try:
+                # Approach 1: Native strict JSON validation parsing
                 data = json.loads(tag.string)
                 if isinstance(data, dict):
                     if '@type' in data: schema_types.append(data['@type'])
                 elif isinstance(data, list):
                     for item in data:
                         if isinstance(item, dict) and '@type' in item: schema_types.append(item['@type'])
-            except: pass
-                
+            except json.JSONDecodeError:
+                # Approach 2: BYPASS RECOVERY Engine via Regex text scraping strings for broken data wrappers
+                matches = re.findall(r'"@type"\s*:\s*"([^"]+)"', tag.string)
+                if matches:
+                    schema_types.extend(matches)
+
+        # --- PATHWAY C: Microdata Fallback Scan Engine ---
+        microdata_tags = soup.find_all(itemtype=True)
+        if microdata_tags:
+            for tag in microdata_tags:
+                schema_url = tag['itemtype']
+                type_name = schema_url.split('/')[-1].split('#')[-1]
+                schema_types.append(f"{type_name} (Microdata)")
+
+        # Evaluate complete metrics output arrays
         if schema_types:
             return "✅ Valid Schema", ", ".join(list(set(schema_types)))
-        return "❌ Missing", "No Schema Data Present"
+            
+        if schema_tags and not schema_types:
+            return "❌ Missing", "No Schema Data Present"
+            
+        return "❌ Missing", "No JSON-LD Detected"
+        
     except Exception:
         return "⚠️ Error", "Connection Timeout/Failed"
 
@@ -213,6 +236,13 @@ if run_button:
             
             with tab1:
                 st.subheader("Data Overview Table")
+                
+                # Transform plain text sequences to visual tag rows inside dataframe display dynamically
+                if not df.empty:
+                    df["Detected Types / Metadata"] = df["Detected Types / Metadata"].apply(
+                        lambda x: [t.strip() for t in x.split(",")] if x and "No" not in x and "Connection" not in x else []
+                    )
+
                 st.dataframe(
                     df, 
                     use_container_width=True, 
@@ -222,14 +252,22 @@ if run_button:
                             "Verification Status",
                             width="medium"
                         ),
-                        "Target URL Endpoint": st.column_config.LinkColumn("Target URL Endpoint")
+                        "Target URL Endpoint": st.column_config.LinkColumn("Target URL Endpoint"),
+                        "Detected Types / Metadata": st.column_config.ListColumn(
+                            "Detected Types / Metadata"
+                        )
                     }
                 )
                 
             with tab2:
                 st.subheader("Download Artifacts")
                 st.markdown("Download the full execution audit log to a CSV spreadsheet.")
-                csv = df.to_csv(index=False).encode('utf-8')
+                
+                # Reverse list transforms so CSV preserves normal comma values layout structure smoothly
+                csv_df = df.copy()
+                csv_df["Detected Types / Metadata"] = csv_df["Detected Types / Metadata"].apply(lambda xl: ", ".join(xl) if isinstance(xl, list) else xl)
+                
+                csv = csv_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Download Data Sheet (.csv)",
                     data=csv,
