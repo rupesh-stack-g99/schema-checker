@@ -5,8 +5,26 @@ import json
 import pandas as pd
 import time
 import re
+import os
+import subprocess
+import sys
 from urllib.parse import urlparse
-from playwright.sync_api import sync_playwright
+
+# --- Automated Playwright Server Setup Override ---
+# This block automatically downloads and hooks Chromium on Streamlit Cloud servers if missing
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "playwright"])
+    from playwright.sync_api import sync_playwright
+
+try:
+    # Test if driver works, if it fails, run headless installer pipeline dynamically
+    with sync_playwright() as p:
+        test_browser = p.chromium.launch(headless=True)
+        test_browser.close()
+except Exception:
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"])
 
 # --- Page Setup & Modern Styling ---
 st.set_page_config(
@@ -63,7 +81,6 @@ def normalize_url(url_input):
     return base.rstrip('/') + '/'
 
 def discover_sitemaps(base_url):
-    # Emulating Googlebot to read index listings cleanly
     headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
     clean_base = base_url.rstrip('/') + '/'
     index_files = ["sitemap.xml", "sitemap_index.xml"]
@@ -124,7 +141,6 @@ def check_schema_google_rendered(url):
     has_scripts = False
     
     with sync_playwright() as p:
-        # Spin up execution engine
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
@@ -143,7 +159,7 @@ def check_schema_google_rendered(url):
             rendered_html = page.content()
             browser.close()
             
-        except Exception as e:
+        except Exception:
             browser.close()
             return "⚠️ Error", "Connection Timeout/Failed"
 
@@ -165,7 +181,7 @@ def check_schema_google_rendered(url):
                     for item in data:
                         if isinstance(item, dict) and '@type' in item: schema_types.append(item['@type'])
             except json.JSONDecodeError:
-                # Regex regex protection recovery pattern for tracking down broken layouts
+                # Regex protection recovery pattern for tracking down broken layouts
                 matches = re.findall(r'"@type"\s*:\s*"([^"]+)"', tag.string)
                 if matches:
                     schema_types.extend(matches)
