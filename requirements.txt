@@ -1,5 +1,4 @@
-streamlit
-requests
+playwright
 beautifulsoup4
-lxml
+requests
 pandas
