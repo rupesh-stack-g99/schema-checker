@@ -12,19 +12,26 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🔍 Service Pages Schema Checker Automation")
-st.markdown("Enter your domain below. This app targets `page-sitemap.xml` and `astra-portfolio-sitemap.xml` but **only** inspects your Homepage and Service pages.")
+st.title("🔍 Site-Wide Schema Checker Automation")
+st.markdown("Enter your domain below. The app will pull all URLs from your target sitemaps and clean them based on your strict ignore rules.")
 
-# --- Strict Filtering Rules ---
-# The script will ONLY allow pages containing these service indicators
-ALLOWED_SERVICE_KEYWORDS = ["/services/", "/service/"]
-
-# Hard rules to drop common junk pages even if they somehow clip into service footprints
-STRICT_EXCLUSIONS = [
-    "contact", "review", "gallery", "about", "team", "privacy", "terms", 
-    "wp-content", "html-sitemap", "portfolio", "blog", "tag", "category"
+# --- The Strict Ignore Rules (Based on your requirements) ---
+IGNORE_KEYWORDS = [
+    "wp-content",
+    "terms",
+    "condition",
+    "services",        # Strips out main service listing page if requested
+    "privacy",
+    "policy",
+    "/portfolio/",
+    "/html-sitemap/",
+    "contact",         # Catches contact, contact-us, contact-us/
+    "about",           # Catches about, about-us, about-us/
+    "review",          # Catches review, reviews, customer-reviews
+    "gallery"          # Catches gallery, photo-gallery
 ]
 
+# Asset extensions to ignore completely
 IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
 
 # --- Functions ---
@@ -33,7 +40,7 @@ def extract_urls_from_sitemaps(base_url, sitemap_list):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
     clean_base = base_url.rstrip('/') + '/'
-    # 1. Force add the exact homepage
+    # Always keep the primary homepage
     urls.append(clean_base)
 
     for sitemap in sitemap_list:
@@ -48,18 +55,17 @@ def extract_urls_from_sitemaps(base_url, sitemap_list):
                         url = tag.text.strip()
                         url_lower = url.lower()
                         
-                        # --- STRICT FILTERING SYSTEM ---
-                        # Skip files
+                        # 1. Skip if it's a file (pdf, webp, svg, etc)
                         if url_lower.endswith(IGNORE_EXTENSIONS):
                             continue
                             
-                        # Skip explicit junk/admin keywords
-                        if any(ex in url_lower for ex in STRICT_EXCLUSIONS):
-                            continue
+                        # 2. Skip if it matches any of your manual ignore terms
+                        if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
+                            # Ensure we don't accidentally ignore the homepage root if a keyword triggers it
+                            if url.rstrip('/') != clean_base.rstrip('/'):
+                                continue
                         
-                        # Only accept if it is a service page path
-                        if any(keyword in url_lower for keyword in ALLOWED_SERVICE_KEYWORDS):
-                            urls.append(url)
+                        urls.append(url)
             else:
                 st.sidebar.warning(f"Could not reach sitemap: {sitemap}")
         except Exception as e:
@@ -114,13 +120,13 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
     if not target_website:
         st.error("Please enter a valid website URL first!")
     else:
-        with st.spinner("📥 Extracting Home and Service pages only..."):
+        with st.spinner("📥 Extracting and filtering URLs based on your ignore list..."):
             urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_check)
         
         if not urls_to_check:
-            st.error("Could not find any pages matching your service layout rules.")
+            st.error("No URLs remaining after applying filters.")
         else:
-            st.success(f"🎯 Target Acquired! Discovered {len(urls_to_check)} core pages (Homepage + Service Pages).")
+            st.success(f"🎯 Filter applied! Found {len(urls_to_check)} pages to analyze.")
             
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -146,14 +152,14 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
             df = pd.DataFrame(results_data)
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Total Targeted Pages", len(df))
+                st.metric("Total Filtered Pages", len(df))
             with col2:
-                st.metric("Schema Configured Correctly", len(df[df["Schema Status"] == "✅ Yes"]))
+                st.metric("Schema Found", len(df[df["Schema Status"] == "✅ Yes"]))
             with col3:
-                st.metric("Schema Missing/Broken", len(df[df["Schema Status"] != "✅ Yes"]))
+                st.metric("Missing Schema", len(df[df["Schema Status"] != "✅ Yes"]))
             
-            # Results UI Table
-            st.subheader("📊 Execution Report")
+            # Results Table
+            st.subheader("📊 Automation Report")
             st.dataframe(df, use_container_width=True)
             
             # Export Options
@@ -161,6 +167,6 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
             st.download_button(
                 label="📥 Download Clean CSV Report",
                 data=csv,
-                file_name="services_schema_report.csv",
+                file_name="filtered_schema_report.csv",
                 mime="text/csv",
             )
