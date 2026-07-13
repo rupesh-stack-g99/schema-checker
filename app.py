@@ -198,12 +198,13 @@ if run_button:
             missing_count = len(df[df["Verification Status"] == "❌ Missing"])
             error_count = total_count - (valid_count + missing_count)
             
+            # Refactored Metrics with clear, technical labels
             st.markdown("### 📈 Verification Performance")
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-            m_col1.metric("Audited Routes", total_count)
-            m_col2.metric("Schema Configured", valid_count, help="JSON-LD code detected")
-            m_col3.metric("Unstructured Pages", missing_count, delta=f"-{missing_count}" if missing_count > 0 else None, delta_color="inverse")
-            m_col4.metric("Crawling Errors", error_count, delta=f"{error_count} flagged" if error_count > 0 else None, delta_color="off")
+            m_col1.metric("Total Pages Checked", total_count)
+            m_col2.metric("Schema Found Pages", valid_count, help="Valid structured data layout found")
+            m_col3.metric("Missing Schema Pages", missing_count, delta=f"-{missing_count}" if missing_count > 0 else None, delta_color="inverse")
+            m_col4.metric("Error Pages", error_count, delta=f"{error_count} flagged" if error_count > 0 else None, delta_color="off")
             
             st.markdown("<br>", unsafe_allow_html=True)
             
