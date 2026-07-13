@@ -6,6 +6,7 @@ import pandas as pd
 import time
 import re
 from urllib.parse import urlparse
+from playwright.sync_api import sync_playwright
 
 # --- Page Setup & Modern Styling ---
 st.set_page_config(
@@ -39,7 +40,7 @@ st.markdown("""
 
 # --- Header & Brand Title ---
 st.markdown("<h1 style='text-align: left; margin-bottom:0;'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
-st.markdown("<p style='font-size:1.1rem; color:#6c757d; margin-top:0;'>Automated SEO Structured Data Auditing for Home & Core Service Pages</p>", unsafe_allow_html=True)
+st.markdown("<p style='font-size:1.1rem; color:#6c757d; margin-top:0;'>Automated Google-Equivalent Structured Data Auditing with JavaScript Rendering</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- Strict Ignore Rules ---
@@ -62,7 +63,7 @@ def normalize_url(url_input):
     return base.rstrip('/') + '/'
 
 def discover_sitemaps(base_url):
-    # Emulating Googlebot to bypass server-side firewall triggers
+    # Emulating Googlebot to read index listings cleanly
     headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
     clean_base = base_url.rstrip('/') + '/'
     index_files = ["sitemap.xml", "sitemap_index.xml"]
@@ -114,24 +115,49 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
             pass
     return sorted(list(set(urls)))
 
-def check_schema(url):
-    headers = {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'}
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code != 200:
-            return "⚠️ Error", f"Status Error ({response.status_code})"
+def check_schema_google_rendered(url):
+    """
+    Launches an isolated headless Chromium instance running a native Googlebot profile.
+    Executes JS arrays fully before passing the rendered DOM code to extraction loops.
+    """
+    schema_types = []
+    has_scripts = False
+    
+    with sync_playwright() as p:
+        # Spin up execution engine
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+        )
+        page = context.new_page()
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        schema_types = []
-        
-        # --- PATHWAY A & B: JSON-LD Verification & Regex Bypass Bypass Recovery ---
-        schema_tags = soup.find_all('script', type='application/ld+json')
-        
+        try:
+            # Load page and wait until script executions settle completely (JS triggers finished)
+            response = page.goto(url, wait_until="networkidle", timeout=15000)
+            
+            if not response or response.status != 200:
+                status_code = response.status if response else "No Response"
+                browser.close()
+                return "⚠️ Error", f"Status Error ({status_code})"
+                
+            rendered_html = page.content()
+            browser.close()
+            
+        except Exception as e:
+            browser.close()
+            return "⚠️ Error", "Connection Timeout/Failed"
+
+    # --- Processing Rendered Document DOM ---
+    soup = BeautifulSoup(rendered_html, 'html.parser')
+    
+    # Pathway 1: JSON-LD Verification & Regex Bypass Recovery
+    schema_tags = soup.find_all('script', type='application/ld+json')
+    if schema_tags:
+        has_scripts = True
         for tag in schema_tags:
             if not tag.string:
                 continue
             try:
-                # Approach 1: Native strict JSON validation parsing
                 data = json.loads(tag.string)
                 if isinstance(data, dict):
                     if '@type' in data: schema_types.append(data['@type'])
@@ -139,30 +165,27 @@ def check_schema(url):
                     for item in data:
                         if isinstance(item, dict) and '@type' in item: schema_types.append(item['@type'])
             except json.JSONDecodeError:
-                # Approach 2: BYPASS RECOVERY Engine via Regex text scraping strings for broken data wrappers
+                # Regex regex protection recovery pattern for tracking down broken layouts
                 matches = re.findall(r'"@type"\s*:\s*"([^"]+)"', tag.string)
                 if matches:
                     schema_types.extend(matches)
 
-        # --- PATHWAY C: Microdata Fallback Scan Engine ---
-        microdata_tags = soup.find_all(itemtype=True)
-        if microdata_tags:
-            for tag in microdata_tags:
-                schema_url = tag['itemtype']
-                type_name = schema_url.split('/')[-1].split('#')[-1]
-                schema_types.append(f"{type_name} (Microdata)")
+    # Pathway 2: Inline Microdata Attributes Matching Engine
+    microdata_tags = soup.find_all(itemtype=True)
+    if microdata_tags:
+        for tag in microdata_tags:
+            schema_url = tag['itemtype']
+            type_name = schema_url.split('/')[-1].split('#')[-1]
+            schema_types.append(f"{type_name} (Microdata)")
 
-        # Evaluate complete metrics output arrays
-        if schema_types:
-            return "✅ Valid Schema", ", ".join(list(set(schema_types)))
-            
-        if schema_tags and not schema_types:
-            return "❌ Missing", "No Schema Data Present"
-            
-        return "❌ Missing", "No JSON-LD Detected"
+    # Evaluate Final Outputs array collections
+    if schema_types:
+        return "✅ Valid Schema", ", ".join(list(set(schema_types)))
         
-    except Exception:
-        return "⚠️ Error", "Connection Timeout/Failed"
+    if has_scripts:
+        return "❌ Missing", "No Schema Data Present"
+        
+    return "❌ Missing", "No JSON-LD Detected"
 
 # --- Sidebar Controls Layout ---
 st.sidebar.markdown("### 🛠️ Crawler Control Panel")
@@ -200,8 +223,8 @@ if run_button:
             results_data = []
             
             for index, url in enumerate(urls_to_check):
-                status_ticker.markdown(f"**Scanning Node ({index + 1}/{len(urls_to_check)}):** `{url}`")
-                status, info = check_schema(url)
+                status_ticker.markdown(f"**Scanning Node ({index + 1}/{len(urls_to_check)}) [Render Mode]:** `{url}`")
+                status, info = check_schema_google_rendered(url)
                 
                 results_data.append({
                     "Target URL Endpoint": url,
@@ -209,7 +232,6 @@ if run_button:
                     "Detected Types / Metadata": info
                 })
                 progress_bar.progress((index + 1) / len(urls_to_check))
-                time.sleep(0.05)
                 
             status_ticker.empty()
             progress_bar.empty()
