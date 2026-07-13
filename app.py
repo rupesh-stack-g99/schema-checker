@@ -15,6 +15,23 @@ st.set_page_config(
 st.title("🔍 Site-Wide Schema Checker Automation")
 st.markdown("Enter your domain below. The app will fetch `page-sitemap.xml` and `astra-portfolio-sitemap.xml` to analyze every page for schema markup automatically.")
 
+# --- Configuration & Ignore Lists ---
+# Text or folders inside URLs that you want ignored completely
+IGNORE_KEYWORDS = [
+    "wp-content",
+    "terms-conditions",
+    "terms-and-conditions",
+    "services",             # Requested to ignore /services/
+    "privacy-policy",
+    "/portfolio/",
+    "/html-sitemap/",
+    "contact-us",
+    "about-us"
+]
+
+# File extensions to ignore
+IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
+
 # --- Functions ---
 def extract_urls_from_sitemaps(base_url, sitemap_list):
     urls = []
@@ -32,7 +49,19 @@ def extract_urls_from_sitemaps(base_url, sitemap_list):
                 loc_tags = soup.find_all('loc')
                 for tag in loc_tags:
                     if tag.text:
-                        urls.append(tag.text.strip())
+                        url = tag.text.strip()
+                        url_lower = url.lower()
+                        
+                        # Apply Filtering Logic
+                        # 1. Skip if it ends with any blacklisted file extensions
+                        if url_lower.endswith(IGNORE_EXTENSIONS):
+                            continue
+                            
+                        # 2. Skip if it matches any keyword phrases
+                        if any(keyword in url_lower for keyword in IGNORE_KEYWORDS):
+                            continue
+                        
+                        urls.append(url)
             else:
                 st.sidebar.warning(f"Could not reach sitemap: {sitemap}")
         except Exception as e:
@@ -87,14 +116,14 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
     if not target_website:
         st.error("Please enter a valid website URL first!")
     else:
-        # Step 1: Get URLs
-        with st.spinner("📥 Extracting URLs from targeted sitemaps..."):
+        # Step 1: Get filtered URLs
+        with st.spinner("📥 Extracting and filtering URLs from targeted sitemaps..."):
             urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_check)
         
         if not urls_to_check:
             st.error("Could not find any URLs. Make sure the domain is correct and those two sitemaps exist.")
         else:
-            st.success(f"🎯 Discovered {len(urls_to_check)} total pages to analyze!")
+            st.success(f"🎯 Discovered {len(urls_to_check)} valid matching pages to analyze!")
             
             # Setup metrics and progress bar
             progress_bar = st.progress(0)
@@ -102,7 +131,7 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
             
             results_data = []
             
-            # Step 2: Loop pages with a progress tracking bar
+            # Step 2: Loop pages
             for index, url in enumerate(urls_to_check):
                 status_text.text(f"Scanning ({index + 1}/{len(urls_to_check)}): {url}")
                 
@@ -114,9 +143,8 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
                     "Detected Schema Types": detected_types
                 })
                 
-                # Update progress bar ratio
                 progress_bar.progress((index + 1) / len(urls_to_check))
-                time.sleep(0.1) # Soft delay to be polite to the target server
+                time.sleep(0.1) # Soft delay to protect server load
             
             status_text.empty()
             progress_bar.empty()
@@ -141,6 +169,6 @@ if st.sidebar.button("🚀 Run Automation", type="primary"):
             st.download_button(
                 label="📥 Download Report as CSV",
                 data=csv,
-                file_name="schema_verification_report.csv",
+                file_name="filtered_schema_report.csv",
                 mime="text/csv",
             )
