@@ -217,7 +217,7 @@ if run_button:
                     use_container_width=True, 
                     hide_index=True,
                     column_config={
-                        "Verification Status": st.column_config.SelectColumn(
+                        "Verification Status": st.column_config.SelectboxColumn(
                             "Verification Status",
                             width="medium"
                         ),
