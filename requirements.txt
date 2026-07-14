@@ -1,5 +1,6 @@
 streamlit
-requests
-beautifulsoup4
 pandas
+beautifulsoup4
 extruct
+cloudscraper
+requests
