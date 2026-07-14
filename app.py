@@ -47,8 +47,8 @@ st.markdown("""
             margin-bottom: 15px;
         }
         .detailed-explanation {
-            text-align: center;
-            max-width: 800px;
+            text-align: center !important;
+            max-width: 900px;
             margin: 0 auto 30px auto;
             font-size: 1.25rem !important;
             font-weight: 400;
@@ -62,7 +62,7 @@ st.markdown("""
 st.markdown("<h1 class='centered-header'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
 st.markdown("<p class='centered-subheader'>Anti-Bot Resilient Multi-Format Structured Data Auditor</p>", unsafe_allow_html=True)
 
-# Detailed H2 Explanation Section
+# Detailed H2 Explanation Section (Explicitly Center-Aligned)
 st.markdown("<h2 class='detailed-explanation'>🔍 Auditing your live production environment to verify that structural schema architecture is correctly mapped and active across your homepage, service offerings, and core landing pages.</h2>", unsafe_allow_html=True)
 
 # --- Center-Aligned Input Layout ---
@@ -104,7 +104,6 @@ def normalize_url(url_input):
 def discover_sitemaps(base_url):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     clean_base = base_url.rstrip('/') + '/'
-    # Updated index files to look for standard, index, and post specific layouts
     index_files = ["sitemap.xml", "sitemap_index.xml", "post-sitemap.xml"]
     discovered_sitemaps = []
     
@@ -114,7 +113,6 @@ def discover_sitemaps(base_url):
         try:
             response = scraper.get(index_url, timeout=10)
             if response.status_code == 200:
-                # If it's a direct sitemap rather than an index, track it directly
                 if index_file == "post-sitemap.xml":
                     discovered_sitemaps.append(index_url)
                     continue
