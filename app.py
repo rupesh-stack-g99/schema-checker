@@ -1,7 +1,10 @@
 import streamlit as st
 import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import extruct
+import json
+import re
 import pandas as pd
 import time
 from urllib.parse import urlparse
@@ -14,7 +17,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for UI
 st.markdown("""
     <style>
         [data-testid="stMetricValue"] {
@@ -34,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 style='text-align: left; margin-bottom:0;'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
-st.markdown("<p style='font-size:1.1rem; color:#6c757d; margin-top:0;'>Multi-Format Structured Data Auditor (JSON-LD & Microdata)</p>", unsafe_allow_html=True)
+st.markdown("<p style='font-size:1.1rem; color:#6c757d; margin-top:0;'>Anti-Bot Resilient Multi-Format Structured Data Auditor</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- Ignore Rules ---
@@ -46,7 +48,7 @@ IGNORE_KEYWORDS = [
 ]
 IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
 
-# --- Logic Helper Functions ---
+# --- Helper Functions ---
 def normalize_url(url_input):
     url_str = url_input.strip()
     if not url_str: return ""
@@ -62,10 +64,11 @@ def discover_sitemaps(base_url):
     index_files = ["sitemap.xml", "sitemap_index.xml"]
     discovered_sitemaps = []
     
+    scraper = cloudscraper.create_scraper()
     for index_file in index_files:
         index_url = f"{clean_base}{index_file}"
         try:
-            response = requests.get(index_url, headers=headers, timeout=10)
+            response = scraper.get(index_url, timeout=10)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'xml')
                 for tag in soup.find_all('loc'):
@@ -81,13 +84,13 @@ def discover_sitemaps(base_url):
 
 def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
     urls = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    scraper = cloudscraper.create_scraper()
     clean_base = base_url.rstrip('/') + '/'
     urls.append(clean_base)
 
     for sitemap_url in discovered_sitemaps:
         try:
-            response = requests.get(sitemap_url, headers=headers, timeout=10)
+            response = scraper.get(sitemap_url, timeout=10)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.content, 'xml')
                 for tag in soup.find_all('loc'):
@@ -102,44 +105,95 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
             pass
     return sorted(list(set(urls)))
 
-# --- Extruct Integration Core Logic ---
-def check_schema_with_extruct(url):
+# --- Helper Parser: Infinitely Deep JSON Schema Hunter ---
+def recursive_find_types(data):
     """
-    Parses both JSON-LD and Microdata declarations using the extruct engine.
+    Recursively scans JSON dictionaries and lists to extract *every* single schema type, 
+    no matter how deeply nested it is inside arrays, graphs, or nested layouts.
     """
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SchemaPulse/1.0'}
+    types = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k in ('@type', 'type') and isinstance(v, str):
+                types.append(v.split('/')[-1]) # Extracts 'LocalBusiness' from 'https://schema.org/LocalBusiness'
+            elif isinstance(v, (dict, list)):
+                types.extend(recursive_find_types(v))
+    elif isinstance(data, list):
+        for item in data:
+            types.extend(recursive_find_types(item))
+    return types
+
+def clean_and_parse_json(raw_json_str):
+    """
+    Cleans up broken JSON string syntax (like inline comments or trailing commas) 
+    that causes standard Python JSON parsers to crash.
+    """
+    # Remove JS double slash comments
+    cleaned = re.sub(r'//.*', '', raw_json_str)
     try:
-        response = requests.get(url, headers=headers, timeout=12)
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+    
+    # Remove trailing commas before closing braces/brackets
+    cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+
+# --- Main Schema Inspection Engine ---
+def check_schema_robustly(url):
+    """
+    Downloads page using Cloudscraper, tests for protection screens, 
+    and performs a multi-strategy audit.
+    """
+    scraper = cloudscraper.create_scraper()
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+    }
+    
+    try:
+        response = scraper.get(url, headers=headers, timeout=15)
+        
+        # Explicit check if page is actually blocked or serving an anti-bot challenge
+        html_lower = response.text.lower()
+        if "captcha-delivery" in html_lower or "cloudflare" in html_lower and "enable javascript" in html_lower:
+            return "⚠️ Protected", "Blocked by Anti-Bot Screen (Cloudflare/Sucuri)"
+            
         if response.status_code != 200:
             return "⚠️ Error", f"Status Error ({response.status_code})"
         
-        # Base url is crucial for resolving relative schema structures
-        data = extruct.extract(response.text, base_url=url, syntaxes=['json-ld', 'microdata'])
-        
         detected_types = []
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 1. Check JSON-LD Blocks
-        for block in data.get('json-ld', []):
-            if isinstance(block, dict):
-                # Handle @graph patterns inside nested JSON-LD arrays
-                if '@graph' in block:
-                    for sub_block in block['@graph']:
-                        if isinstance(sub_block, dict) and '@type' in sub_block:
-                            detected_types.append(sub_block['@type'])
-                elif '@type' in block:
-                    detected_types.append(block['@type'])
+        # Strategy A: Directly find and parse ALL script tag contents (Deep Hunter)
+        json_scripts = soup.find_all('script', type='application/ld+json')
+        for script in json_scripts:
+            if script.string:
+                parsed_json = clean_and_parse_json(script.string.strip())
+                if parsed_json:
+                    detected_types.extend(recursive_find_types(parsed_json))
                     
-        # 2. Check Microdata (e.g., HTML markup with itemscope/itemtype)
-        for block in data.get('microdata', []):
-            if isinstance(block, dict) and 'type' in block:
-                # Extruct types usually come back as full URLs like http://schema.org/LocalBusiness
-                raw_type = block['type']
-                if isinstance(raw_type, str):
-                    type_name = raw_type.split('/')[-1]
-                    detected_types.append(type_name)
-
-        # Cleanup duplicate types
-        detected_types = list(set(detected_types))
+        # Strategy B: Fallback to Extruct (Catches inline Microdata & RDFa formats)
+        try:
+            extruct_data = extruct.extract(response.text, base_url=url, syntaxes=['json-ld', 'microdata'])
+            # Extract JSON-LD via Extruct
+            for block in extruct_data.get('json-ld', []):
+                detected_types.extend(recursive_find_types(block))
+            # Extract Microdata via Extruct
+            for block in extruct_data.get('microdata', []):
+                if isinstance(block, dict) and 'type' in block:
+                    raw_type = block['type']
+                    if isinstance(raw_type, str):
+                        detected_types.append(raw_type.split('/')[-1])
+        except Exception:
+            pass # Strategy A is already running, continue if Extruct errors out on messy tags
+            
+        # Deduplicate results
+        detected_types = list(set([t for t in detected_types if t]))
         
         if detected_types:
             return "✅ Valid Schema", ", ".join(detected_types)
@@ -149,30 +203,30 @@ def check_schema_with_extruct(url):
     except requests.exceptions.Timeout:
         return "⚠️ Error", "Connection Timeout"
     except Exception as e:
-        return "⚠️ Error", "Parsing Failed"
+        return "⚠️ Error", f"Failed to Fetch ({str(e)})"
 
-# --- Sidebar ---
+# --- Sidebar Controls ---
 st.sidebar.markdown("### 🛠️ Crawler Control Panel")
 raw_website_input = st.sidebar.text_input("Target Domain Path", placeholder="example.com")
 run_button = st.sidebar.button("🚀 Start Deep Scan", type="primary", use_container_width=True)
 
-# --- Main App Logic ---
+# --- Main App Execution ---
 if run_button:
     if not raw_website_input:
         st.error("❗ Please provide a target domain extension before executing.")
     else:
         target_website = normalize_url(raw_website_input)
         
-        with st.status("🛠️ Mapping Sitemap Routes & Stripping Exclusions...", expanded=True) as status_box:
-            st.write("🕵️ Discovering active sitemap indexing...")
+        with st.status("🛠️ Mapping Sitemap Routes & Bypassing Anti-Bot Walls...", expanded=True) as status_box:
+            st.write("🕵️ Discovering active sitemaps...")
             sitemaps_to_run = discover_sitemaps(target_website)
             
-            st.write("📥 Loading pages and ignoring system files...")
+            st.write("📥 Loading pages and ignoring system noise...")
             urls_to_check = extract_urls_from_sitemaps(target_website, sitemaps_to_run)
             status_box.update(label="Scanning Target Pipeline Configured!", state="complete", expanded=False)
         
         if not urls_to_check:
-            st.error("❌ Process Halting: No URLs remain after filtering against exclusions.")
+            st.error("❌ Process Halting: No URLs found.")
         else:
             progress_bar = st.progress(0)
             status_ticker = st.empty()
@@ -180,7 +234,7 @@ if run_button:
             
             for index, url in enumerate(urls_to_check):
                 status_ticker.markdown(f"**Inspecting Node ({index + 1}/{len(urls_to_check)}):** `{url}`")
-                status, info = check_schema_with_extruct(url)
+                status, info = check_schema_robustly(url)
                 
                 results_data.append({
                     "Target URL Endpoint": url,
@@ -188,7 +242,7 @@ if run_button:
                     "Detected Types / Metadata": info
                 })
                 progress_bar.progress((index + 1) / len(urls_to_check))
-                time.sleep(0.05)
+                time.sleep(0.1) # Natural pause to prevent server rate-limiting
                 
             status_ticker.empty()
             progress_bar.empty()
@@ -203,9 +257,9 @@ if run_button:
             st.markdown("### 📈 Verification Performance")
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             m_col1.metric("Total Pages Checked", total_count)
-            m_col2.metric("Schema Found Pages", valid_count, help="Valid structured JSON-LD or Microdata found")
+            m_col2.metric("Schema Found Pages", valid_count)
             m_col3.metric("Missing Schema Pages", missing_count, delta=f"-{missing_count}" if missing_count > 0 else None, delta_color="inverse")
-            m_col4.metric("Error Pages", error_count, delta=f"{error_count} flagged" if error_count > 0 else None, delta_color="off")
+            m_col4.metric("Error/Protected Pages", error_count, delta=f"{error_count} flagged" if error_count > 0 else None, delta_color="off")
             
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -216,9 +270,9 @@ if run_button:
                 st.subheader("Data Overview Table")
                 
                 if not df.empty:
-                    # Parse text list back into dynamic table tags for a clean visualization layout
+                    # Clean output values to render lists cleanly inside Streamlit's dataframe
                     df["Detected Types / Metadata"] = df["Detected Types / Metadata"].apply(
-                        lambda x: [t.strip() for t in x.split(",")] if x and "No" not in x and "Connection" not in x else []
+                        lambda x: [t.strip() for t in x.split(",")] if x and "No" not in x and "Connection" not in x and "Blocked" not in x else [x]
                     )
 
                 st.dataframe(
@@ -241,7 +295,7 @@ if run_button:
                 st.download_button(
                     label="📥 Download Data Sheet (.csv)",
                     data=csv,
-                    file_name="extruct_schema_audit.csv",
+                    file_name="schemapulse_scan_results.csv",
                     mime="text/csv",
                     type="secondary"
                 )
