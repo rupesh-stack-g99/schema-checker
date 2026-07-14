@@ -1,1 +1,5 @@
-pip install extruct requests beautifulsoup4 streamlit pandas
+streamlit
+requests
+beautifulsoup4
+pandas
+extruct
