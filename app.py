@@ -44,7 +44,16 @@ st.markdown("""
             font-size: 1.1rem;
             color: #6c757d;
             margin-top: 0px;
-            margin-bottom: 25px;
+            margin-bottom: 15px;
+        }
+        .detailed-explanation {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto 30px auto;
+            font-size: 1.25rem !important;
+            font-weight: 400;
+            line-height: 1.6;
+            color: #b0b3b8;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -52,6 +61,9 @@ st.markdown("""
 # Centered Headings
 st.markdown("<h1 class='centered-header'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
 st.markdown("<p class='centered-subheader'>Anti-Bot Resilient Multi-Format Structured Data Auditor</p>", unsafe_allow_html=True)
+
+# Detailed H2 Explanation Section
+st.markdown("<h2 class='detailed-explanation'>🔍 Auditing your live production environment to verify that structural schema architecture is correctly mapped and active across your homepage, service offerings, and core landing pages.</h2>", unsafe_allow_html=True)
 
 # --- Center-Aligned Input Layout ---
 # Creating columns to perfectly center the input box on the page
@@ -68,12 +80,11 @@ with col2:
 
 st.markdown("---")
 
-# --- Ignore Rules (Updated with locations.kml) ---
+# --- Ignore Rules (Updated: Removed contact, about, review, gallery) ---
 IGNORE_KEYWORDS = [
     "wp-content", "terms", "condition", "privacy", "policy", "policies",        
     "shop", "specials", "payment-plans", "our-services", "/html-sitemap/",
-    "contact", "about", "review", "gallery", "awards", "before-after",    
-    "blog", "video", "thank-you"        
+    "awards", "before-after", "blog", "video", "thank-you"        
 ]
 IGNORE_EXTENSIONS = (
     ".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", 
@@ -93,7 +104,8 @@ def normalize_url(url_input):
 def discover_sitemaps(base_url):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     clean_base = base_url.rstrip('/') + '/'
-    index_files = ["sitemap.xml", "sitemap_index.xml"]
+    # Updated index files to look for standard, index, and post specific layouts
+    index_files = ["sitemap.xml", "sitemap_index.xml", "post-sitemap.xml"]
     discovered_sitemaps = []
     
     scraper = cloudscraper.create_scraper()
@@ -102,16 +114,21 @@ def discover_sitemaps(base_url):
         try:
             response = scraper.get(index_url, timeout=10)
             if response.status_code == 200:
+                # If it's a direct sitemap rather than an index, track it directly
+                if index_file == "post-sitemap.xml":
+                    discovered_sitemaps.append(index_url)
+                    continue
+                
                 soup = BeautifulSoup(response.content, 'xml')
                 for tag in soup.find_all('loc'):
                     sitemap_loc = tag.text.strip().lower()
-                    if "page" in sitemap_loc or "sitemap" in sitemap_loc:
+                    if "page" in sitemap_loc or "sitemap" in sitemap_loc or "post" in sitemap_loc:
                         discovered_sitemaps.append(tag.text.strip())
         except Exception:
             continue
             
     if not discovered_sitemaps:
-        discovered_sitemaps = [f"{clean_base}page-sitemap.xml", f"{clean_base}sitemap.xml"]
+        discovered_sitemaps = [f"{clean_base}page-sitemap.xml", f"{clean_base}post-sitemap.xml", f"{clean_base}sitemap.xml"]
     return list(set(discovered_sitemaps))
 
 def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
