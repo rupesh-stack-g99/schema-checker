@@ -56,7 +56,7 @@ st.markdown("<p class='centered-subheader'>Anti-Bot Resilient Multi-Format Struc
 # Detailed H2 Explanation Section (With absolute center-forcing inline styling)
 st.markdown(
     "<h2 style='text-align: center; max-width: 900px; margin: 0 auto 30px auto; font-size: 1.25rem; font-weight: 400; line-height: 1.6; color: #b0b3b8;'>"
-    "🔍 Auditing your live production environment to verify that structural schema architecture is correctly mapped and active across your homepage, service offerings, and core landing pages."
+    "🔍 Audit your live website to verify that schema markup is correctly implemented across your homepage, service pages, and key landing pages."
     "</h2>", 
     unsafe_allow_html=True
 )
