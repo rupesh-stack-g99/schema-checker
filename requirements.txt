@@ -1,5 +1,1 @@
-streamlit
-beautifulsoup4
-requests
-pandas
-playwright
+pip install extruct requests beautifulsoup4 streamlit pandas
