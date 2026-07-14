@@ -14,9 +14,10 @@ st.set_page_config(
     page_title="SchemaPulse | Deep Schema Extractor",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # Collapsed by default for a cleaner main screen
 )
 
+# Custom CSS for UI centering and styling
 st.markdown("""
     <style>
         [data-testid="stMetricValue"] {
@@ -32,21 +33,52 @@ st.markdown("""
         }
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
+        
+        /* Centering the main header text */
+        .centered-header {
+            text-align: center;
+            margin-bottom: 0px;
+        }
+        .centered-subheader {
+            text-align: center;
+            font-size: 1.1rem;
+            color: #6c757d;
+            margin-top: 0px;
+            margin-bottom: 25px;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: left; margin-bottom:0;'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
-st.markdown("<p style='font-size:1.1rem; color:#6c757d; margin-top:0;'>Anti-Bot Resilient Multi-Format Structured Data Auditor</p>", unsafe_allow_html=True)
+# Centered Headings
+st.markdown("<h1 class='centered-header'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
+st.markdown("<p class='centered-subheader'>Anti-Bot Resilient Multi-Format Structured Data Auditor</p>", unsafe_allow_html=True)
+
+# --- Center-Aligned Input Layout ---
+# Creating columns to perfectly center the input box on the page
+col1, col2, col3 = st.columns([1, 2, 1])
+
+with col2:
+    raw_website_input = st.text_input(
+        "Target Domain Path", 
+        placeholder="example.com", 
+        label_visibility="collapsed"
+    )
+    # Centered primary action button
+    run_button = st.button("🚀 Start Deep Scan", type="primary", use_container_width=True)
+
 st.markdown("---")
 
-# --- Ignore Rules ---
+# --- Ignore Rules (Updated with locations.kml) ---
 IGNORE_KEYWORDS = [
     "wp-content", "terms", "condition", "privacy", "policy", "policies",        
     "shop", "specials", "payment-plans", "our-services", "/html-sitemap/",
     "contact", "about", "review", "gallery", "awards", "before-after",    
     "blog", "video", "thank-you"        
 ]
-IGNORE_EXTENSIONS = (".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".ico")
+IGNORE_EXTENSIONS = (
+    ".svg", ".webp", ".pdf", ".jpg", ".jpeg", ".png", 
+    ".gif", ".ico", "locations.kml", ".kml"
+)
 
 # --- Helper Functions ---
 def normalize_url(url_input):
@@ -107,15 +139,11 @@ def extract_urls_from_sitemaps(base_url, discovered_sitemaps):
 
 # --- Helper Parser: Infinitely Deep JSON Schema Hunter ---
 def recursive_find_types(data):
-    """
-    Recursively scans JSON dictionaries and lists to extract *every* single schema type, 
-    no matter how deeply nested it is inside arrays, graphs, or nested layouts.
-    """
     types = []
     if isinstance(data, dict):
         for k, v in data.items():
             if k in ('@type', 'type') and isinstance(v, str):
-                types.append(v.split('/')[-1]) # Extracts 'LocalBusiness' from 'https://schema.org/LocalBusiness'
+                types.append(v.split('/')[-1])
             elif isinstance(v, (dict, list)):
                 types.extend(recursive_find_types(v))
     elif isinstance(data, list):
@@ -124,18 +152,12 @@ def recursive_find_types(data):
     return types
 
 def clean_and_parse_json(raw_json_str):
-    """
-    Cleans up broken JSON string syntax (like inline comments or trailing commas) 
-    that causes standard Python JSON parsers to crash.
-    """
-    # Remove JS double slash comments
     cleaned = re.sub(r'//.*', '', raw_json_str)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
     
-    # Remove trailing commas before closing braces/brackets
     cleaned = re.sub(r',\s*([\]}])', r'\1', cleaned)
     try:
         return json.loads(cleaned)
@@ -144,10 +166,6 @@ def clean_and_parse_json(raw_json_str):
 
 # --- Main Schema Inspection Engine ---
 def check_schema_robustly(url):
-    """
-    Downloads page using Cloudscraper, tests for protection screens, 
-    and performs a multi-strategy audit.
-    """
     scraper = cloudscraper.create_scraper()
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -158,7 +176,6 @@ def check_schema_robustly(url):
     try:
         response = scraper.get(url, headers=headers, timeout=15)
         
-        # Explicit check if page is actually blocked or serving an anti-bot challenge
         html_lower = response.text.lower()
         if "captcha-delivery" in html_lower or "cloudflare" in html_lower and "enable javascript" in html_lower:
             return "⚠️ Protected", "Blocked by Anti-Bot Screen (Cloudflare/Sucuri)"
@@ -169,7 +186,7 @@ def check_schema_robustly(url):
         detected_types = []
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Strategy A: Directly find and parse ALL script tag contents (Deep Hunter)
+        # Strategy A: Deep Parser
         json_scripts = soup.find_all('script', type='application/ld+json')
         for script in json_scripts:
             if script.string:
@@ -177,22 +194,19 @@ def check_schema_robustly(url):
                 if parsed_json:
                     detected_types.extend(recursive_find_types(parsed_json))
                     
-        # Strategy B: Fallback to Extruct (Catches inline Microdata & RDFa formats)
+        # Strategy B: Extruct
         try:
             extruct_data = extruct.extract(response.text, base_url=url, syntaxes=['json-ld', 'microdata'])
-            # Extract JSON-LD via Extruct
             for block in extruct_data.get('json-ld', []):
                 detected_types.extend(recursive_find_types(block))
-            # Extract Microdata via Extruct
             for block in extruct_data.get('microdata', []):
                 if isinstance(block, dict) and 'type' in block:
                     raw_type = block['type']
                     if isinstance(raw_type, str):
                         detected_types.append(raw_type.split('/')[-1])
         except Exception:
-            pass # Strategy A is already running, continue if Extruct errors out on messy tags
+            pass
             
-        # Deduplicate results
         detected_types = list(set([t for t in detected_types if t]))
         
         if detected_types:
@@ -204,11 +218,6 @@ def check_schema_robustly(url):
         return "⚠️ Error", "Connection Timeout"
     except Exception as e:
         return "⚠️ Error", f"Failed to Fetch ({str(e)})"
-
-# --- Sidebar Controls ---
-st.sidebar.markdown("### 🛠️ Crawler Control Panel")
-raw_website_input = st.sidebar.text_input("Target Domain Path", placeholder="example.com")
-run_button = st.sidebar.button("🚀 Start Deep Scan", type="primary", use_container_width=True)
 
 # --- Main App Execution ---
 if run_button:
@@ -242,7 +251,7 @@ if run_button:
                     "Detected Types / Metadata": info
                 })
                 progress_bar.progress((index + 1) / len(urls_to_check))
-                time.sleep(0.1) # Natural pause to prevent server rate-limiting
+                time.sleep(0.1)
                 
             status_ticker.empty()
             progress_bar.empty()
@@ -263,35 +272,25 @@ if run_button:
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Tabbed View Components
             tab1, tab2 = st.tabs(["📋 Inspection Data Stream", "📦 Data Export Panel"])
             
             with tab1:
                 st.subheader("Data Overview Table")
                 
-                if not df.empty:
-                    # Clean output values to render lists cleanly inside Streamlit's dataframe
-                    df["Detected Types / Metadata"] = df["Detected Types / Metadata"].apply(
-                        lambda x: [t.strip() for t in x.split(",")] if x and "No" not in x and "Connection" not in x and "Blocked" not in x else [x]
-                    )
-
                 st.dataframe(
                     df, 
                     use_container_width=True, 
                     hide_index=True,
                     column_config={
+                        "Target URL Endpoint": st.column_config.LinkColumn("Target URL Endpoint", width="large"),
                         "Verification Status": st.column_config.TextColumn("Verification Status", width="medium"),
-                        "Target URL Endpoint": st.column_config.LinkColumn("Target URL Endpoint"),
-                        "Detected Types / Metadata": st.column_config.ListColumn("Detected Types / Metadata")
+                        "Detected Types / Metadata": st.column_config.TextColumn("Detected Types / Metadata", width="large")
                     }
                 )
                 
             with tab2:
                 st.subheader("Download Artifacts")
-                csv_df = df.copy()
-                csv_df["Detected Types / Metadata"] = csv_df["Detected Types / Metadata"].apply(lambda xl: ", ".join(xl) if isinstance(xl, list) else xl)
-                
-                csv = csv_df.to_csv(index=False).encode('utf-8')
+                csv = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Download Data Sheet (.csv)",
                     data=csv,
@@ -299,3 +298,15 @@ if run_button:
                     mime="text/csv",
                     type="secondary"
                 )
+
+# --- Bottom Collapsible Exclusions View (Closed by Default) ---
+st.markdown("<br><br>", unsafe_allow_html=True)
+with st.expander("⚙️ View Active URL Exclusion Rules (Closed by Default)"):
+    st.markdown("To speed up auditing, the crawler automatically ignores non-contextual pages or complex non-HTML document objects.")
+    col_ex1, col_ex2 = st.columns(2)
+    with col_ex1:
+        st.write("**Ignored Keywords:**")
+        st.code(", ".join(IGNORE_KEYWORDS))
+    with col_ex2:
+        st.write("**Ignored Extensions & Document Assets:**")
+        st.code(", ".join(IGNORE_EXTENSIONS))
