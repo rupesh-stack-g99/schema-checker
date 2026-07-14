@@ -46,15 +46,6 @@ st.markdown("""
             margin-top: 0px;
             margin-bottom: 15px;
         }
-        .detailed-explanation {
-            text-align: center !important;
-            max-width: 900px;
-            margin: 0 auto 30px auto;
-            font-size: 1.25rem !important;
-            font-weight: 400;
-            line-height: 1.6;
-            color: #b0b3b8;
-        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -62,11 +53,15 @@ st.markdown("""
 st.markdown("<h1 class='centered-header'>⚡ SchemaPulse</h1>", unsafe_allow_html=True)
 st.markdown("<p class='centered-subheader'>Anti-Bot Resilient Multi-Format Structured Data Auditor</p>", unsafe_allow_html=True)
 
-# Detailed H2 Explanation Section (Explicitly Center-Aligned)
-st.markdown("<h2 class='detailed-explanation'>🔍 Auditing your live production environment to verify that structural schema architecture is correctly mapped and active across your homepage, service offerings, and core landing pages.</h2>", unsafe_allow_html=True)
+# Detailed H2 Explanation Section (With absolute center-forcing inline styling)
+st.markdown(
+    "<h2 style='text-align: center; max-width: 900px; margin: 0 auto 30px auto; font-size: 1.25rem; font-weight: 400; line-height: 1.6; color: #b0b3b8;'>"
+    "🔍 Auditing your live production environment to verify that structural schema architecture is correctly mapped and active across your homepage, service offerings, and core landing pages."
+    "</h2>", 
+    unsafe_allow_html=True
+)
 
 # --- Center-Aligned Input Layout ---
-# Creating columns to perfectly center the input box on the page
 col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
@@ -75,7 +70,6 @@ with col2:
         placeholder="example.com", 
         label_visibility="collapsed"
     )
-    # Centered primary action button
     run_button = st.button("🚀 Start Deep Scan", type="primary", use_container_width=True)
 
 st.markdown("---")
@@ -201,7 +195,6 @@ def check_schema_robustly(url):
         detected_types = []
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Strategy A: Deep Parser
         json_scripts = soup.find_all('script', type='application/ld+json')
         for script in json_scripts:
             if script.string:
@@ -209,7 +202,6 @@ def check_schema_robustly(url):
                 if parsed_json:
                     detected_types.extend(recursive_find_types(parsed_json))
                     
-        # Strategy B: Extruct
         try:
             extruct_data = extruct.extract(response.text, base_url=url, syntaxes=['json-ld', 'microdata'])
             for block in extruct_data.get('json-ld', []):
